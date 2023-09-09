@@ -1,1 +1,0 @@
-/opt/intel/oneapi/compiler/latest/linux/bin/icpx CMakeFiles/EMBREESYCL.dir/src/Test.cpp.o -o EMBREESYCL  -Wl,-rpath,/home/peizhao/Desktop/syclembreetest/external/embree-4.2.0/lib ../external/embree-4.2.0/lib/libembree4.so.4 -lsycl 

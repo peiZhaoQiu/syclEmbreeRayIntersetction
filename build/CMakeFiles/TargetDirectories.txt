@@ -1,3 +1,0 @@
-/home/peizhao/Desktop/syclembreetest/build/CMakeFiles/EMBREESYCL.dir
-/home/peizhao/Desktop/syclembreetest/build/CMakeFiles/edit_cache.dir
-/home/peizhao/Desktop/syclembreetest/build/CMakeFiles/rebuild_cache.dir
