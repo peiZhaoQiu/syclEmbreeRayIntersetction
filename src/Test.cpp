@@ -171,33 +171,56 @@ void castRay(RTCScene scene,
 // Define your SYCL kernel function
 class RayIntersectionKernel {
 public:
-    RayIntersectionKernel(RTCDevice device, RTCScene scene)
-        : scene_(scene) {}
+    RayIntersectionKernel(sycl::queue& q, RTCScene& scene, sycl::buffer<RTCRayHit>& rayResults, sycl::buffer<Ray>& rayBuffer, int raySize)
+        : queue_(q), scene_(scene), rayResults_(rayResults), rayBuffer_(rayBuffer), raySize_(raySize) {}
 
-    void operator()(sycl::handler& cgh) {
-        // Create a buffer to store ray results (e.g., hit information)
-        sycl::buffer<RayHitInfo, 1> rayResults(bufSize);
+    RTCRayHit castRay(Ray ray, RTCScene& scene) {
+        struct RTCRayHit rayhit;
+        rayhit.ray.org_x = ray.origin.x;
+        rayhit.ray.org_y = ray.origin.y;
+        rayhit.ray.org_z = ray.origin.z;
+        rayhit.ray.dir_x = ray.direction.x;
+        rayhit.ray.dir_y = ray.direction.y;
+        rayhit.ray.dir_z = ray.direction.z;
+        rayhit.ray.tnear = 0;
+        rayhit.ray.tfar = std::numeric_limits<float>::infinity();
+        rayhit.ray.mask = -1;
+        rayhit.ray.flags = 0;
+        rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+        rayhit.hit.instID[0] = ((unsigned int)-1);
+        rtcIntersect1(scene, &rayhit);
 
-        cgh.parallel_for<class RayIntersectionKernel>(
-            sycl::range<1>(numRays),
-            [=](sycl::id<1> idx) {
-                // Inside the kernel function, you can call Embree functions
-                // to perform ray tracing calculations
-                RTCRayHit rayhit;
-                // Set up your ray parameters in rayhit
+        return rayhit;
+    }
 
-                // Call the Embree intersection function
-                rtcIntersect(scene_, rayhit);
+    void operator()() {
+        RTCScene& scene = this->scene_;
+        sycl::buffer<RTCRayHit>& rayResults = this->rayResults_;
+        sycl::buffer<Ray>& rayBuffer = this->rayBuffer_;
+        int raySize = this->raySize_;
 
-                // Store the result in the rayResults buffer
-                rayResults[idx] = RayHitInfo(rayhit);
-            }
-        );
+        // Define and execute the kernel within the operator() function
+        queue_.submit([&](sycl::handler& cgh) {
+            auto rayResultsAcc = rayResults.template get_access<sycl::access::mode::write>(cgh);
+            auto rayBufferAcc = rayBuffer.template get_access<sycl::access::mode::read>(cgh);
+
+            cgh.parallel_for<class MyKernel>(
+                sycl::range<1>(raySize),
+                [=](sycl::id<1> idx) {
+                    // Kernel code goes here
+                    rayResultsAcc[idx] = castRay(rayBufferAcc[idx], scene);
+                }
+            );
+        });
+        queue_.wait();
     }
 
 private:
-    RTCDevice device_;
-    RTCScene scene_;
+    RTCScene& scene_;
+    sycl::buffer<RTCRayHit>& rayResults_;
+    sycl::buffer<Ray>& rayBuffer_;
+    sycl::queue& queue_;
+    int raySize_;
 };
 
 int main() {
@@ -209,43 +232,54 @@ int main() {
     sycl::context context = queue.get_context();
     RTCDevice device = initializeDevice();
     RTCScene scene = initializeScene(device);
+    
+
+    Ray ray1(Vec3f(0.33f,0.33f,-1.0f),Vec3f(0.0f,0.0f,1.0f));
+
+    Ray ray2(Vec3f(1.0f,1.0f,-1.0f),Vec3f(0.0f,0.0f,1.0f));
+
+    std::vector<Ray> rays;
+    rays.push_back(ray1);
+    rays.push_back(ray2);
+    int raySize = rays.size();
+
     // Create a buffer to hold ray results (e.g., hit information)
-    sycl::buffer<RayHitInfo, 1> rayResults(bufSize);
+    sycl::buffer<RTCRayHit, 1> rayResults(raySize);
+    sycl::buffer<Ray,1> rayBuffer(rays.data(),sycl::range<1>(raySize));
 
-    // Create a SYCL buffer for Embree scene data (e.g., vertices, triangles, etc.)
+    // Create a SYCL kernel functor and execute it
 
-    // Create a SYCL buffer for your rays
+    RayIntersectionKernel kernel(queue, scene, rayResults, rayBuffer, raySize);
 
-    // Create a SYCL buffer for other necessary data
 
-    // Execute the SYCL kernel with your Embree-related calculations
-    queue.submit([&](sycl::handler& cgh) {
-        // Access the Embree scene buffer and ray buffer as inputs
-        auto embreeSceneAccessor = embreeSceneBuffer.template get_access<sycl::access::mode::read>(cgh);
-        auto rayBufferAccessor = rayBuffer.template get_access<sycl::access::mode::read>(cgh);
+    auto resultAccessor =  rayResults.template get_access<sycl::access::mode::read>();
 
-        // Access the rayResults buffer as an output
-        auto rayResultsAccessor = rayResults.template get_access<sycl::access::mode::write>(cgh);
+     for (int i = 0; i < raySize; ++i) {
+        //std::cout << "Result[" << i << "] = " << resultAccessor[i] << std::endl;
+        auto rayhit = resultAccessor[i];
+        //std::cout << "Result[" << i << "] = " << resultAccessor[i].hit.geomID << std::endl;
+        if (rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID)
+        {
+          /* Note how geomID and primID identify the geometry we just hit.
+          * We could use them here to interpolate geometry information,
+          * compute shading, etc.
+          * Since there is only a single triangle in this scene, we will
+          * get geomID=0 / primID=0 for all hits.
+          * There is also instID, used for instancing. See
+          * the instancing tutorials for more information */
+          printf("Found intersection on geometry %d, primitive %d at tfar=%f\n", 
+                rayhit.hit.geomID,
+                rayhit.hit.primID,
+                rayhit.ray.tfar);
+        }
+        else
+          printf("Did not find any intersection.\n");
 
-        cgh.set_args(scene, /* other kernel arguments */);
+    }
 
-        // Construct the SYCL kernel
-        cgh.single_task<RayIntersectionKernel>([=]() {
-            // Inside the SYCL kernel, you can use Embree functions
-            // to perform ray tracing calculations using data from the buffers
-            RTCRayHit rayhit;
-            // Set up your ray parameters in rayhit
-
-            // Call the Embree intersection function
-            rtcIntersect(scene, rayhit);
-
-            // Store the result in the rayResults buffer
-            rayResultsAccessor[idx] = RayHitInfo(rayhit);
-        });
-    });
 
     // Wait for the SYCL queue to finish
-    queue.wait();
+    //queue.wait();
 
     // Process the rayResults buffer with the intersection information
 

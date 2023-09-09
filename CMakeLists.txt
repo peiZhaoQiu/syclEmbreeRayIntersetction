@@ -25,9 +25,9 @@ FIND_PACKAGE(embree 4 REQUIRED)
 #include all the files in the src directory
 file(GLOB SOURCES "src/*.cpp")
 
-add_executable(HELLOEMBREE ${CMAKE_SOURCE_DIR}/src/Test.cpp ${SOURCES})
+add_executable(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/src/Test.cpp ${SOURCES})
 if(ENABLE_SYCL)
-TARGET_INCLUDE_DIRECTORIES(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/include /opt/intel/oneapi/compiler/latest/linux/include)
+TARGET_INCLUDE_DIRECTORIES(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/include  /opt/intel/oneapi/compiler/latest/linux/include)
 TARGET_LINK_LIBRARIES(${PROJECT_NAME} PUBLIC embree sycl)
 else()
 TARGET_INCLUDE_DIRECTORIES(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR})
