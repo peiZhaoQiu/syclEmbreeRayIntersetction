@@ -111,70 +111,17 @@ RTCScene initializeScene(RTCDevice device)
 }
 
 
-/*
- * Cast a single ray with origin (ox, oy, oz) and direction
- * (dx, dy, dz).
- */
-void castRay(RTCScene scene, 
-             float ox, float oy, float oz,
-             float dx, float dy, float dz)
-{
-  /*
-   * The ray hit structure holds both the ray and the hit.
-   * The user must initialize it properly -- see API documentation
-   * for rtcIntersect1() for details.
-   */
-  struct RTCRayHit rayhit;
-  rayhit.ray.org_x = ox;
-  rayhit.ray.org_y = oy;
-  rayhit.ray.org_z = oz;
-  rayhit.ray.dir_x = dx;
-  rayhit.ray.dir_y = dy;
-  rayhit.ray.dir_z = dz;
-  rayhit.ray.tnear = 0;
-  rayhit.ray.tfar = std::numeric_limits<float>::infinity();
-  rayhit.ray.mask = -1;
-  rayhit.ray.flags = 0;
-  rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
-  rayhit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
-
-  /*
-   * There are multiple variants of rtcIntersect. This one
-   * intersects a single ray with the scene.
-   */
-  rtcIntersect1(scene, &rayhit);
-
-  printf("%f, %f, %f: ", ox, oy, oz);
-  if (rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID)
+  class Minescene
   {
-    /* Note how geomID and primID identify the geometry we just hit.
-     * We could use them here to interpolate geometry information,
-     * compute shading, etc.
-     * Since there is only a single triangle in this scene, we will
-     * get geomID=0 / primID=0 for all hits.
-     * There is also instID, used for instancing. See
-     * the instancing tutorials for more information */
-    printf("Found intersection on geometry %d, primitive %d at tfar=%f\n", 
-           rayhit.hit.geomID,
-           rayhit.hit.primID,
-           rayhit.ray.tfar);
-  }
-  else
-    printf("Did not find any intersection.\n");
-}
+    public:
+
+    RTCScene _scene;
 
 
-// Define your Embree scene data here
+    Minescene(RTCScene scene): _scene(scene) {}
 
-//namespace sycl = cl::sycl;
-
-// Define your SYCL kernel function
-class RayIntersectionKernel {
-public:
-    RayIntersectionKernel(sycl::queue& q, RTCScene& scene, sycl::buffer<RTCRayHit>& rayResults, sycl::buffer<Ray>& rayBuffer, int raySize)
-        : queue_(q), scene_(scene), rayResults_(rayResults), rayBuffer_(rayBuffer), raySize_(raySize) {}
-
-    RTCRayHit castRay(Ray ray, RTCScene& scene) {
+    RTCRayHit castRay(const Ray& ray) const
+    {
         struct RTCRayHit rayhit;
         rayhit.ray.org_x = ray.origin.x;
         rayhit.ray.org_y = ray.origin.y;
@@ -188,27 +135,97 @@ public:
         rayhit.ray.flags = 0;
         rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
         rayhit.hit.instID[0] = ((unsigned int)-1);
-        rtcIntersect1(scene, &rayhit);
+        rtcIntersect1(_scene, &rayhit);
 
         return rayhit;
     }
+  };
+
+
+
+
+
+/*
+ * Cast a single ray with origin (ox, oy, oz) and direction
+ * (dx, dy, dz).
+ */
+// void castRay(RTCScene scene, 
+//              float ox, float oy, float oz,
+//              float dx, float dy, float dz)
+// {
+//   /*
+//    * The ray hit structure holds both the ray and the hit.
+//    * The user must initialize it properly -- see API documentation
+//    * for rtcIntersect1() for details.
+//    */
+//   struct RTCRayHit rayhit;
+//   rayhit.ray.org_x = ox;
+//   rayhit.ray.org_y = oy;
+//   rayhit.ray.org_z = oz;
+//   rayhit.ray.dir_x = dx;
+//   rayhit.ray.dir_y = dy;
+//   rayhit.ray.dir_z = dz;
+//   rayhit.ray.tnear = 0;
+//   rayhit.ray.tfar = std::numeric_limits<float>::infinity();
+//   rayhit.ray.mask = -1;
+//   rayhit.ray.flags = 0;
+//   rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+//   rayhit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
+
+//   /*
+//    * There are multiple variants of rtcIntersect. This one
+//    * intersects a single ray with the scene.
+//    */
+//   rtcIntersect1(scene, &rayhit);
+
+//   printf("%f, %f, %f: ", ox, oy, oz);
+//   if (rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID)
+//   {
+//     /* Note how geomID and primID identify the geometry we just hit.
+//      * We could use them here to interpolate geometry information,
+//      * compute shading, etc.
+//      * Since there is only a single triangle in this scene, we will
+//      * get geomID=0 / primID=0 for all hits.
+//      * There is also instID, used for instancing. See
+//      * the instancing tutorials for more information */
+//     printf("Found intersection on geometry %d, primitive %d at tfar=%f\n", 
+//            rayhit.hit.geomID,
+//            rayhit.hit.primID,
+//            rayhit.ray.tfar);
+//   }
+//   else
+//     printf("Did not find any intersection.\n");
+// }
+
+
+// Define your Embree scene data here
+
+//namespace sycl = cl::sycl;
+
+// Define your SYCL kernel function
+class RayIntersectionKernel {
+public:
+    RayIntersectionKernel(sycl::queue& q, Minescene& scene, sycl::buffer<RTCRayHit>& rayResults, sycl::buffer<Ray>& rayBuffer, int raySize)
+        : queue_(q), scene_(scene), rayResults_(rayResults), rayBuffer_(rayBuffer), raySize_(raySize) {}
+
+
 
     void operator()() {
-        RTCScene& scene = this->scene_;
-        sycl::buffer<RTCRayHit>& rayResults = this->rayResults_;
-        sycl::buffer<Ray>& rayBuffer = this->rayBuffer_;
-        int raySize = this->raySize_;
-
+        Minescene scene = this->scene_;
+        //sycl::buffer<RTCRayHit>& rayResults = this->rayResults_;
+        //sycl::buffer<Ray>& rayBuffer = this->rayBuffer_;
+        //int raySize = this->raySize_;
+        
         // Define and execute the kernel within the operator() function
         queue_.submit([&](sycl::handler& cgh) {
-            auto rayResultsAcc = rayResults.template get_access<sycl::access::mode::write>(cgh);
-            auto rayBufferAcc = rayBuffer.template get_access<sycl::access::mode::read>(cgh);
-
+            auto rayResultsAcc = rayResults_.template get_access<sycl::access::mode::write>(cgh);
+            auto rayBufferAcc = rayBuffer_.template get_access<sycl::access::mode::read>(cgh);
+            //auto sceneAcc = scene_.template get_access<sycl::access::mode::read>(cgh);
             cgh.parallel_for<class MyKernel>(
-                sycl::range<1>(raySize),
+                sycl::range<1>(raySize_),
                 [=](sycl::id<1> idx) {
                     // Kernel code goes here
-                    rayResultsAcc[idx] = castRay(rayBufferAcc[idx], scene);
+                    rayResultsAcc[idx] = scene.castRay(rayBufferAcc[idx]);
                 }
             );
         });
@@ -216,7 +233,7 @@ public:
     }
 
 private:
-    RTCScene& scene_;
+    Minescene& scene_;
     sycl::buffer<RTCRayHit>& rayResults_;
     sycl::buffer<Ray>& rayBuffer_;
     sycl::queue& queue_;
@@ -232,6 +249,7 @@ int main() {
     sycl::context context = queue.get_context();
     RTCDevice device = initializeDevice();
     RTCScene scene = initializeScene(device);
+    Minescene testScene(scene);
     
 
     Ray ray1(Vec3f(0.33f,0.33f,-1.0f),Vec3f(0.0f,0.0f,1.0f));
@@ -249,7 +267,7 @@ int main() {
 
     // Create a SYCL kernel functor and execute it
 
-    RayIntersectionKernel kernel(queue, scene, rayResults, rayBuffer, raySize);
+    RayIntersectionKernel kernel(queue, testScene, rayResults, rayBuffer, raySize);
 
 
     auto resultAccessor =  rayResults.template get_access<sycl::access::mode::read>();
