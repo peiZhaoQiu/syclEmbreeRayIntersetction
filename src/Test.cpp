@@ -173,7 +173,7 @@ public:
                 sycl::range<1>(raySize_),
                 [=](sycl::id<1> idx) {
                     // Kernel code goes here
-                    rayResultsAcc[idx] = scene_.castRay(rayBufferAcc[idx]);
+                    rayResultsAcc[idx] = scene.castRay(rayBufferAcc[idx]);
                 }
             );
         });
